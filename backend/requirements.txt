@@ -1,0 +1,6 @@
+websockets>=16.0
+fastapi>=0.139
+uvicorn[standard]>=0.30
+motor>=3.5
+python-dotenv>=1.0
+# kiteconnect  # add when wiring the real KiteTicker
