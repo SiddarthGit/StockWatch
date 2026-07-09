@@ -20,7 +20,9 @@ export interface OHLC {
 export interface Tick {
   tradable: boolean;
   mode: TickMode;
-  instrument_token: number;
+  symbol: string; // Yahoo symbol, e.g. "RELIANCE.NS" -- the canonical id
+  tradingsymbol?: string; // display symbol, e.g. "RELIANCE"
+  exchange?: string; // "NSE" | "BSE" | "INDEX"
 
   // ltp mode and up
   last_price: number;

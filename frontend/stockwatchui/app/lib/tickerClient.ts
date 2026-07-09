@@ -1,31 +1,23 @@
 import type { Tick } from "./ticks";
 
 // WebSocket client for the tick stream. Talks to the Python backend
-// (backend/mock_ticker.py now, real KiteTicker-backed server later) with the
-// same subscribe/on_ticks feel as KiteTicker itself.
+// (backend/yfinance_ticker.py) with a KiteTicker-like subscribe/on_ticks feel.
+// Instruments are identified by their Yahoo symbol, e.g. "RELIANCE.NS".
 //
 //   const ticker = new TickerClient();
 //   ticker.on_ticks((ticks) => ...);
 //   ticker.connect();
-//   ticker.subscribe([738561, 256265]);
+//   ticker.subscribe(["RELIANCE.NS", "^NSEI"]);
 
-const DEFAULT_URL = "ws://localhost:8765";
+const DEFAULT_URL =
+  process.env.NEXT_PUBLIC_TICKER_URL ?? "ws://localhost:8765";
 
 type TicksHandler = (ticks: Tick[]) => void;
-
-// Instruments the mock backend knows about, for the search UI to match against.
-export const INSTRUMENTS = [
-  { instrument_token: 738561, symbol: "RELIANCE" },
-  { instrument_token: 341249, symbol: "HDFCBANK" },
-  { instrument_token: 408065, symbol: "INFY" },
-  { instrument_token: 5633, symbol: "ACC" },
-  { instrument_token: 256265, symbol: "NIFTY 50" },
-];
 
 export class TickerClient {
   private ws: WebSocket | null = null;
   private handler: TicksHandler | null = null;
-  private subscribed = new Set<number>();
+  private subscribed = new Set<string>();
 
   constructor(private url: string = DEFAULT_URL) {}
 
@@ -51,14 +43,14 @@ export class TickerClient {
     };
   }
 
-  subscribe(tokens: number[]): void {
-    for (const t of tokens) this.subscribed.add(t);
-    this.send("subscribe", tokens);
+  subscribe(symbols: string[]): void {
+    for (const s of symbols) this.subscribed.add(s);
+    this.send("subscribe", symbols);
   }
 
-  unsubscribe(tokens: number[]): void {
-    for (const t of tokens) this.subscribed.delete(t);
-    this.send("unsubscribe", tokens);
+  unsubscribe(symbols: string[]): void {
+    for (const s of symbols) this.subscribed.delete(s);
+    this.send("unsubscribe", symbols);
   }
 
   disconnect(): void {
@@ -66,9 +58,9 @@ export class TickerClient {
     this.ws = null;
   }
 
-  private send(action: string, tokens: number[]): void {
+  private send(action: string, symbols: string[]): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action, tokens }));
+      this.ws.send(JSON.stringify({ action, symbols }));
     }
   }
 }

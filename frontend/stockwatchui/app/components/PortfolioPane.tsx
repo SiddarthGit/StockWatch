@@ -4,7 +4,7 @@ import { invested, type Holding } from "../lib/holdings";
 
 interface Props {
   holdings: Holding[];
-  onSelect: (instrument_token: number) => void;
+  onSelect: (symbol: string) => void;
 }
 
 function signClass(n: number): string {
@@ -22,7 +22,6 @@ export default function PortfolioPane({ holdings, onSelect }: Props) {
     );
   }
 
-  const totalInvested = holdings.reduce((s, h) => s + invested(h), 0);
   const totalPnl = holdings.reduce((s, h) => s + h.pnl, 0);
 
   return (
@@ -40,8 +39,8 @@ export default function PortfolioPane({ holdings, onSelect }: Props) {
       <ul className="divide-y divide-zinc-100">
         {holdings.map((h) => (
           <li
-            key={h.instrument_token}
-            onClick={() => onSelect(h.instrument_token)}
+            key={h.symbol}
+            onClick={() => onSelect(h.symbol)}
             className="flex cursor-pointer items-center justify-between px-6 py-4 hover:bg-zinc-50"
           >
             {/* left: qty/avg + symbol */}

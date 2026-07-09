@@ -3,4 +3,6 @@ fastapi>=0.139
 uvicorn[standard]>=0.30
 motor>=3.5
 python-dotenv>=1.0
+# Prices come straight from Yahoo's public chart/search HTTP endpoints
+# (urllib), so no yfinance/heavy client dependency is needed.
 # kiteconnect  # add when wiring the real KiteTicker
