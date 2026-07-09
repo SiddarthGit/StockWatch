@@ -26,7 +26,7 @@ export default function PortfolioPane({ holdings, onSelect }: Props) {
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-between px-6 py-3 text-sm">
+      <div className="flex items-center justify-between px-4 py-3 text-sm sm:px-6">
         <span className="font-medium text-zinc-800">
           Holdings <span className="text-zinc-400">{holdings.length}</span>
         </span>
@@ -41,14 +41,14 @@ export default function PortfolioPane({ holdings, onSelect }: Props) {
           <li
             key={h.symbol}
             onClick={() => onSelect(h.symbol)}
-            className="flex cursor-pointer items-center justify-between px-6 py-4 hover:bg-zinc-50"
+            className="flex cursor-pointer items-center justify-between gap-3 px-4 py-4 hover:bg-zinc-50 sm:px-6"
           >
             {/* left: qty/avg + symbol */}
-            <div className="flex flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-1">
               <span className="text-xs text-zinc-500 tabular-nums">
                 {h.quantity} Qty. · Avg. {h.average_price.toFixed(2)}
               </span>
-              <span className="font-medium text-zinc-800">
+              <span className="truncate font-medium text-zinc-800">
                 {h.tradingsymbol}
               </span>
               <span className="text-xs text-zinc-500 tabular-nums">
@@ -57,7 +57,7 @@ export default function PortfolioPane({ holdings, onSelect }: Props) {
             </div>
 
             {/* right: pnl + ltp/change */}
-            <div className="flex flex-col items-end gap-1">
+            <div className="flex shrink-0 flex-col items-end gap-1">
               <span className={`font-medium tabular-nums ${signClass(h.pnl)}`}>
                 {h.pnl >= 0 ? "+" : ""}
                 {h.pnl.toFixed(2)}

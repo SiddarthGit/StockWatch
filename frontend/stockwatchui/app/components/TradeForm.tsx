@@ -56,11 +56,11 @@ export default function TradeForm({
     // translucent backdrop
     <div
       onMouseDown={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
     >
       <div
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
+        className="max-h-[90dvh] w-full max-w-sm overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
       >
         {/* header: symbol + live price */}
         <div className="flex items-start justify-between">
@@ -134,7 +134,7 @@ export default function TradeForm({
           max={side === "sell" ? held : undefined}
           value={quantity}
           onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
-          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 tabular-nums text-zinc-800 outline-none focus:border-zinc-500"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base tabular-nums text-zinc-800 outline-none focus:border-zinc-500"
         />
         {oversell && (
           <p className="mt-1 text-xs text-red-600">

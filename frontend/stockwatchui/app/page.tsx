@@ -171,13 +171,13 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col flex-1 font-sans">
-      <header className="flex w-full items-center justify-between gap-4 px-6 py-4">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-800">
+    <div className="mx-auto flex w-full max-w-3xl flex-col flex-1 font-sans">
+      <header className="flex w-full flex-col gap-3 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-4">
+        <h1 className="text-xl font-semibold tracking-tight text-zinc-800 sm:text-2xl">
           StockWatch
         </h1>
 
-        <div ref={boxRef} className="relative w-full max-w-md">
+        <div ref={boxRef} className="relative w-full sm:max-w-md">
           <input
             type="text"
             value={query}
@@ -187,11 +187,11 @@ export default function Home() {
             }}
             onFocus={() => setOpen(true)}
             placeholder="Search NSE & BSE stocks..."
-            className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-zinc-800 outline-none focus:border-zinc-500"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-base text-zinc-800 outline-none focus:border-zinc-500 sm:py-2"
           />
 
           {open && query.trim() && (
-            <ul className="absolute z-10 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+            <ul className="absolute z-10 mt-2 max-h-[50vh] w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg sm:max-h-80">
               {results.length === 0 ? (
                 <li className="px-4 py-2 text-sm text-zinc-500">No matches</li>
               ) : (
@@ -242,7 +242,7 @@ export default function Home() {
       </header>
 
       {/* portfolio pane below the search bar */}
-      <main className="flex-1">
+      <main className="flex-1 pb-[env(safe-area-inset-bottom)]">
         <PortfolioPane holdings={holdings} onSelect={openFromHolding} />
       </main>
 
