@@ -1,0 +1,21 @@
+# Render Blueprint for the StockWatch backend (FastAPI).
+# Deploy: push to GitHub, then in Render > New > Blueprint, pick this repo.
+# Set MONGODB_URI and FRONTEND_ORIGINS (secrets) in the dashboard when prompted.
+services:
+  - type: web
+    name: stockwatch-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: MONGODB_DB
+        value: stockwatch
+      - key: MONGODB_URI
+        sync: false # set in dashboard (secret)
+      - key: FRONTEND_ORIGINS
+        sync: false # e.g. https://your-app.vercel.app

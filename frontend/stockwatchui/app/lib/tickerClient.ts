@@ -1,66 +1,72 @@
 import type { Tick } from "./ticks";
 
-// WebSocket client for the tick stream. Talks to the Python backend
-// (backend/yfinance_ticker.py) with a KiteTicker-like subscribe/on_ticks feel.
-// Instruments are identified by their Yahoo symbol, e.g. "RELIANCE.NS".
+// Polls the backend /quotes endpoint on a timer and delivers ticks, exposing
+// the same subscribe/on_ticks/connect/disconnect surface the old WebSocket
+// client had -- so the rest of the app is unchanged. Polling (rather than a
+// WebSocket) is what lets the whole backend run as Vercel serverless functions.
 //
 //   const ticker = new TickerClient();
 //   ticker.on_ticks((ticks) => ...);
 //   ticker.connect();
 //   ticker.subscribe(["RELIANCE.NS", "^NSEI"]);
 
-const DEFAULT_URL =
-  process.env.NEXT_PUBLIC_TICKER_URL ?? "ws://localhost:8765";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const POLL_MS = 4000;
 
 type TicksHandler = (ticks: Tick[]) => void;
 
 export class TickerClient {
-  private ws: WebSocket | null = null;
   private handler: TicksHandler | null = null;
   private subscribed = new Set<string>();
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private inFlight = false;
 
-  constructor(private url: string = DEFAULT_URL) {}
+  constructor(private intervalMs: number = POLL_MS) {}
 
   on_ticks(handler: TicksHandler): void {
     this.handler = handler;
   }
 
   connect(): void {
-    if (this.ws) return;
-    const ws = new WebSocket(this.url);
-    this.ws = ws;
-
-    ws.onopen = () => {
-      // (re)subscribe to anything requested before the socket was ready
-      if (this.subscribed.size) this.send("subscribe", [...this.subscribed]);
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "ticks" && this.handler) {
-        this.handler(msg.data as Tick[]);
-      }
-    };
+    if (this.timer) return;
+    this.timer = setInterval(() => this.poll(), this.intervalMs);
   }
 
   subscribe(symbols: string[]): void {
-    for (const s of symbols) this.subscribed.add(s);
-    this.send("subscribe", symbols);
+    let added = false;
+    for (const s of symbols) {
+      if (!this.subscribed.has(s)) {
+        this.subscribed.add(s);
+        added = true;
+      }
+    }
+    if (added) this.poll(); // fetch new symbols right away
   }
 
   unsubscribe(symbols: string[]): void {
     for (const s of symbols) this.subscribed.delete(s);
-    this.send("unsubscribe", symbols);
   }
 
   disconnect(): void {
-    this.ws?.close();
-    this.ws = null;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
-  private send(action: string, symbols: string[]): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action, symbols }));
+  private async poll(): Promise<void> {
+    if (this.inFlight || this.subscribed.size === 0 || !this.handler) return;
+    this.inFlight = true;
+    try {
+      const symbols = [...this.subscribed].join(",");
+      const res = await fetch(
+        `${API_URL}/quotes?symbols=${encodeURIComponent(symbols)}`,
+      );
+      if (!res.ok) return;
+      const ticks = (await res.json()) as Tick[];
+      if (ticks.length) this.handler(ticks);
+    } catch {
+      // transient network error; next tick will retry
+    } finally {
+      this.inFlight = false;
     }
   }
 }

@@ -16,8 +16,7 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from contextlib import asynccontextmanager
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -86,33 +85,38 @@ def is_market_open(now: datetime | None = None) -> bool:
 
 
 # --- app / db ---------------------------------------------------------------
+# The Mongo client is created lazily on first use (not in a lifespan handler),
+# so it works both under uvicorn locally and as a Vercel serverless function
+# (where lifespan events don't run). Motor connects lazily, so building the
+# client at import time is cheap.
 
-client: AsyncIOMotorClient | None = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global client
-    client = AsyncIOMotorClient(MONGODB_URI)
-    # fail fast if Atlas is unreachable / credentials are wrong
-    await client.admin.command("ping")
-    yield
-    client.close()
+_client: AsyncIOMotorClient | None = None
 
 
-app = FastAPI(title="StockWatch API", lifespan=lifespan)
+def get_client() -> AsyncIOMotorClient:
+    global _client
+    if _client is None:
+        _client = AsyncIOMotorClient(MONGODB_URI)
+    return _client
 
+
+app = FastAPI(title="StockWatch API")
+
+# Allow local dev and any Vercel deployment (preview + production) of the frontend.
+_extra_origins = [
+    o for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", *_extra_origins],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 def portfolios():
-    assert client is not None
-    return client[MONGODB_DB]["portfolios"]
+    return get_client()[MONGODB_DB]["portfolios"]
 
 
 # --- instrument search (Yahoo Finance) --------------------------------------
@@ -151,7 +155,77 @@ def yahoo_search(query: str) -> list[SearchResult]:
     return results
 
 
+# --- live quotes (Yahoo v8 chart) -------------------------------------------
+# Lightweight per-symbol quote (~0.13s, no auth). This is the polling
+# replacement for the WebSocket ticker; the frontend calls /quotes on a timer.
+
+_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{}?range=1d&interval=1d"
+
+
+def _round2(n):
+    return round(n, 2) if n is not None else None
+
+
+def yahoo_quote(symbol: str) -> dict | None:
+    """Blocking: one quote from Yahoo's v8 chart endpoint -> tick dict."""
+    req = urllib.request.Request(
+        _CHART.format(symbol), headers={"User-Agent": "Mozilla/5.0"}
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        m = json.load(resp)["chart"]["result"][0]["meta"]
+
+    is_index = symbol.startswith("^")
+    if is_index:
+        tradingsymbol, exchange = symbol, "INDEX"
+    elif "." in symbol:
+        base, suffix = symbol.rsplit(".", 1)
+        tradingsymbol, exchange = base, _SUFFIX_TO_EXCHANGE.get(suffix, suffix)
+    else:
+        tradingsymbol, exchange = symbol, ""
+
+    last = m.get("regularMarketPrice")
+    prev_close = m.get("chartPreviousClose")
+    change = (
+        _round2((last - prev_close) / prev_close * 100)
+        if last is not None and prev_close
+        else 0.0
+    )
+    return {
+        "symbol": symbol,
+        "tradingsymbol": tradingsymbol,
+        "exchange": exchange,
+        "tradable": not is_index,
+        "mode": "quote" if is_index else "full",
+        "last_price": _round2(last),
+        "change": change,
+        "ohlc": {
+            "open": None,
+            "high": _round2(m.get("regularMarketDayHigh")),
+            "low": _round2(m.get("regularMarketDayLow")),
+            "close": _round2(prev_close),
+        },
+        "volume_traded": m.get("regularMarketVolume"),
+        "exchange_timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # --- routes -----------------------------------------------------------------
+
+@app.get("/quotes")
+def quotes(symbols: str) -> list[dict]:
+    """symbols = comma-separated Yahoo symbols, e.g. RELIANCE.NS,^NSEI."""
+    out: list[dict] = []
+    for sym in (s.strip() for s in symbols.split(",")):
+        if not sym:
+            continue
+        try:
+            q = yahoo_quote(sym)
+            if q:
+                out.append(q)
+        except Exception:  # noqa: BLE001 -- skip a failed symbol, keep the rest
+            continue
+    return out
+
 
 # Sync def -> FastAPI runs it in a threadpool, keeping the blocking HTTP call
 # off the event loop.
@@ -179,8 +253,7 @@ def market_status() -> dict:
 @app.get("/health")
 async def health() -> dict:
     try:
-        assert client is not None
-        await client.admin.command("ping")
+        await get_client().admin.command("ping")
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=str(exc))
