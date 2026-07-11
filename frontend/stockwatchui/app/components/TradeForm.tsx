@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Tick } from "../lib/ticks";
 import type { Position } from "../lib/holdings";
+import BuysChart from "./BuysChart";
 
 export interface TradeTarget {
   symbol: string; // Yahoo symbol, e.g. "RELIANCE.NS"
@@ -93,6 +94,20 @@ export default function TradeForm({
           <p className="mt-2 text-xs text-zinc-500">
             Held: {position.quantity} @ ₹{position.average_price.toFixed(2)}
           </p>
+        )}
+
+        {/* your buys over time */}
+        {position && position.lots.length > 0 && price > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-medium text-zinc-500">
+              Your buys
+            </p>
+            <BuysChart
+              lots={position.lots}
+              averagePrice={position.average_price}
+              currentPrice={price}
+            />
+          </div>
         )}
 
         {closed && (

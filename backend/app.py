@@ -38,13 +38,22 @@ if not MONGODB_URI:
 # --- schema (mirrors frontend Position in app/lib/holdings.ts) --------------
 # Instruments are identified by their Yahoo symbol (e.g. "RELIANCE.NS").
 
+class Lot(BaseModel):
+    """One buy. Lots are the source of truth; quantity/average_price derive."""
+    date: str  # ISO 8601 timestamp of the purchase
+    price: float
+    quantity: float
+
+
 class Position(BaseModel):
     symbol: str  # Yahoo symbol, e.g. "RELIANCE.NS" -- the canonical id
     tradingsymbol: str  # display symbol, e.g. "RELIANCE"
     exchange: str  # "NSE" | "BSE"
     product: str
-    quantity: float
-    average_price: float
+    lots: list[Lot] = Field(default_factory=list)
+    quantity: float = 0  # derived from lots
+    average_price: float = 0  # derived from lots
+    realized_pnl: float = 0  # accumulated FIFO gain/loss from sells
 
 
 class Portfolio(BaseModel):
@@ -259,27 +268,59 @@ async def health() -> dict:
         raise HTTPException(status_code=503, detail=str(exc))
 
 
+# --- lot helpers ------------------------------------------------------------
+# Lots are the source of truth; quantity/average_price are recomputed from them.
+
+def _recompute(pos: dict) -> dict:
+    lots = pos.get("lots", [])
+    qty = sum(lot["quantity"] for lot in lots)
+    cost = sum(lot["price"] * lot["quantity"] for lot in lots)
+    pos["quantity"] = qty
+    pos["average_price"] = cost / qty if qty else 0
+    pos.setdefault("realized_pnl", 0)
+    return pos
+
+
+def _migrate(pos: dict) -> dict:
+    """Back-fill a lot for legacy positions saved before lots existed."""
+    if not pos.get("lots"):
+        pos["lots"] = [
+            {
+                "date": datetime.now(IST).isoformat(),
+                "price": pos.get("average_price", 0),
+                "quantity": pos.get("quantity", 0),
+            }
+        ]
+    return _recompute(pos)
+
+
+async def _load_positions() -> list[dict]:
+    doc = await portfolios().find_one({"_id": USER_ID})
+    positions = doc.get("positions", []) if doc else []
+    return [_migrate(p) for p in positions]
+
+
+async def _save_positions(positions: list[dict]) -> None:
+    await portfolios().update_one(
+        {"_id": USER_ID}, {"$set": {"positions": positions}}, upsert=True
+    )
+
+
 @app.get("/holdings", response_model=Portfolio)
 async def get_holdings() -> Portfolio:
-    doc = await portfolios().find_one({"_id": USER_ID})
-    if not doc:
-        return Portfolio(positions=[])
-    return Portfolio(positions=doc.get("positions", []))
+    return Portfolio(positions=await _load_positions())
 
 
 @app.put("/holdings", response_model=Portfolio)
 async def put_holdings(portfolio: Portfolio) -> Portfolio:
-    await portfolios().update_one(
-        {"_id": USER_ID},
-        {"$set": {"positions": [p.model_dump() for p in portfolio.positions]}},
-        upsert=True,
-    )
-    return portfolio
+    positions = [_migrate(p.model_dump()) for p in portfolio.positions]
+    await _save_positions(positions)
+    return Portfolio(positions=positions)
 
 
 def _apply_trade(positions: list[dict], t: TradeRequest) -> list[dict]:
-    """Apply a validated buy/sell to a positions list. Guardrail: sell qty
-    may not exceed the held quantity."""
+    """Apply a validated buy/sell. Buys append a lot; sells consume lots FIFO
+    (oldest first) and accrue realized P&L. Guardrail: sell qty <= held."""
     idx = next(
         (i for i, p in enumerate(positions) if p["symbol"] == t.symbol), None
     )
@@ -291,32 +332,50 @@ def _apply_trade(positions: list[dict], t: TradeRequest) -> list[dict]:
                 status_code=400,
                 detail=f"Cannot sell {t.quantity:g}; only {held:g} held of {t.tradingsymbol}",
             )
-        remaining = held - t.quantity
-        if remaining <= 0:
+        pos = positions[idx]
+        remaining = t.quantity
+        realized = 0.0
+        kept: list[dict] = []
+        for lot in pos["lots"]:  # oldest first
+            if remaining <= 0:
+                kept.append(lot)
+                continue
+            take = min(lot["quantity"], remaining)
+            realized += (t.price - lot["price"]) * take
+            lot["quantity"] -= take
+            remaining -= take
+            if lot["quantity"] > 0:
+                kept.append(lot)
+        pos["lots"] = kept
+        pos["realized_pnl"] = pos.get("realized_pnl", 0) + realized
+        if not kept:  # fully sold -> drop, but keep no dangling position
             positions.pop(idx)
         else:
-            positions[idx]["quantity"] = remaining
+            _recompute(pos)
         return positions
 
-    # buy: merge with weighted-average price, or add a new position
+    # buy: append a new lot (or start a new position)
+    new_lot = {
+        "date": datetime.now(IST).isoformat(),
+        "price": t.price,
+        "quantity": t.quantity,
+    }
     if idx is None:
         positions.append(
-            {
-                "symbol": t.symbol,
-                "tradingsymbol": t.tradingsymbol,
-                "exchange": t.exchange,
-                "product": t.product,
-                "quantity": t.quantity,
-                "average_price": t.price,
-            }
+            _recompute(
+                {
+                    "symbol": t.symbol,
+                    "tradingsymbol": t.tradingsymbol,
+                    "exchange": t.exchange,
+                    "product": t.product,
+                    "lots": [new_lot],
+                    "realized_pnl": 0,
+                }
+            )
         )
     else:
-        cur = positions[idx]
-        total_qty = cur["quantity"] + t.quantity
-        cur["average_price"] = (
-            cur["average_price"] * cur["quantity"] + t.price * t.quantity
-        ) / total_qty
-        cur["quantity"] = total_qty
+        positions[idx]["lots"].append(new_lot)
+        _recompute(positions[idx])
     return positions
 
 
@@ -332,11 +391,7 @@ async def trade(req: TradeRequest) -> Portfolio:
             detail="Market is closed (09:15-15:30 IST, Mon-Fri)",
         )
 
-    doc = await portfolios().find_one({"_id": USER_ID})
-    positions = doc.get("positions", []) if doc else []
+    positions = await _load_positions()
     positions = _apply_trade(positions, req)
-
-    await portfolios().update_one(
-        {"_id": USER_ID}, {"$set": {"positions": positions}}, upsert=True
-    )
+    await _save_positions(positions)
     return Portfolio(positions=positions)

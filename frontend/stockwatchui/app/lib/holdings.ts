@@ -3,13 +3,22 @@ import type { Tick } from "./ticks";
 // A held position -- the minimal state we persist. Instruments are identified
 // by their Yahoo symbol (e.g. "RELIANCE.NS"). Everything the Kite holdings()
 // response exposes (pnl, day_change...) is derived from this + the live tick.
+// One buy. Lots are the source of truth; quantity/average_price derive.
+export interface Lot {
+  date: string; // ISO 8601 timestamp of the purchase
+  price: number;
+  quantity: number;
+}
+
 export interface Position {
   symbol: string; // Yahoo symbol, e.g. "RELIANCE.NS" -- the canonical id
   tradingsymbol: string; // display symbol, e.g. "RELIANCE"
   exchange: string; // "NSE" | "BSE"
   product: string; // e.g. "CNC"
-  quantity: number;
-  average_price: number;
+  lots: Lot[];
+  quantity: number; // derived from lots
+  average_price: number; // derived from lots
+  realized_pnl?: number; // accumulated FIFO gain/loss from sells
 }
 
 // The shape Kite Connect's holdings() returns per instrument (the fields we use).
