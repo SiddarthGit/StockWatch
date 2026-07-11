@@ -1,7 +1,10 @@
 import type { Position } from "./holdings";
 
 // Persistence + search API client -> FastAPI backend (backend/app.py).
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Trailing slashes are stripped so `${API_URL}/path` never becomes `//path`.
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "");
 
 export interface SearchResult {
   symbol: string; // Yahoo symbol, e.g. "RELIANCE.NS"

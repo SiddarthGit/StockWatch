@@ -10,7 +10,9 @@ import type { Tick } from "./ticks";
 //   ticker.connect();
 //   ticker.subscribe(["RELIANCE.NS", "^NSEI"]);
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "");
 const POLL_MS = 4000;
 
 type TicksHandler = (ticks: Tick[]) => void;
